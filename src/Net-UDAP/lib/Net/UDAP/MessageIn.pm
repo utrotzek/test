@@ -20,13 +20,18 @@ package Net::UDAP::MessageIn;
 use strict;
 use warnings;
 
+# Add the modules to the libpath
+use FindBin;
+use lib "$FindBin::Bin/../src/Net-UDAP/lib";
+
 use version; our $VERSION = qv('1.0_01');
 
-use vars qw( $AUTOLOAD );                    # Keep 'use strict' happy
+use vars qw( $AUTOLOAD );    # Keep 'use strict' happy
 use base qw(Class::Accessor);
 
 use Carp;
 use Data::Dumper;
+use Data::HexDump;
 use Net::UDAP::Constant;
 use Net::UDAP::Util;
 use Net::UDAP::Log;
@@ -92,8 +97,9 @@ __PACKAGE__->mk_accessors( keys %field_default );
         # Update the device_data hash with the new values
         # No need to write the device_data hash back since
         # we're working with a reference to it
-
         @$device_data_ref{ keys %{$arg_ref} } = values %{$arg_ref};
+
+        # $self->device_data_ref( $device_data_ref );
 
         return;
     }
@@ -113,7 +119,7 @@ __PACKAGE__->mk_accessors( keys %field_default );
             croak('raw msg not set');
         };
 
-        # print "\$raw_msg in MessageIn::udap_decode\n" . hex2str($raw_msg);
+        print "\$raw_msg in MessageIn::udap_decode\n" . HexDump($raw_msg);
 
         # Initialise offset from start of raw string
         # This is incremented as we read characters from the string
@@ -122,7 +128,7 @@ __PACKAGE__->mk_accessors( keys %field_default );
         # get dst_broadcast
         $self->dst_broadcast( substr( $raw_msg, $os, 1 ) );
         $os += 1;
-
+        
         # get dst addr type
         $self->dst_addr_type( substr( $raw_msg, $os, 1 ) );
         $os += 1;
@@ -141,14 +147,14 @@ __PACKAGE__->mk_accessors( keys %field_default );
 
             # default action if dst address type not recognised
             croak( 'Unknown dst_addr_type value found: '
-                    . format_hex( $self->dst_addr_type ) );
+                . hexstr( $self->dst_addr_type, 4 ) );
         }
         $os += 6;
 
         # get src_broadcast
         $self->src_broadcast( substr( $raw_msg, $os, 1 ) );
         $os += 1;
-
+        
         # get src addr type
         $self->src_addr_type( substr( $raw_msg, $os, 1 ) );
         $os += 1;
@@ -167,7 +173,7 @@ __PACKAGE__->mk_accessors( keys %field_default );
 
             # default action if src address type not recognised
             croak( 'Unknown src_addr_type value found: '
-                    . format_hex( $self->src_addr_type ) );
+                    . hexstr( $self->src_addr_type, 4 ) );
         }
         $os += 6;
 
@@ -222,8 +228,6 @@ __PACKAGE__->mk_accessors( keys %field_default );
                         ? substr( $raw_msg, $os, $data_length )
                         : '';
                     $os += $data_length;
-                    
-                    log( debug => '*** ucp_code_name: ' . $ucp_code_name->{$ucp_code} . ', data string: ' . format_hex($data) . "\n" ) if $data;
 
                     # add to the data hash
                     if ( exists $ucp_code_name->{$ucp_code} ) {
@@ -245,9 +249,6 @@ __PACKAGE__->mk_accessors( keys %field_default );
 
                 # get number of data items
                 my $num_items = unpack( 'n', substr( $raw_msg, $os, 2 ) );
-
-                last SWITCH if !$num_items;
-
                 $os += 2;
 
                 log( debug => "    num_items: $num_items\n" );
@@ -268,23 +269,29 @@ __PACKAGE__->mk_accessors( keys %field_default );
                         = unpack( 'n', substr( $raw_msg, $os, 2 ) );
                     $os += 2;
 
-                    log( debug => "     data length: $data_length\n" );
+                    log( debug => "    data length: $data_length\n" );
 
                     #get string
                     my $data_string = unpack( "a*",
                         substr( $raw_msg, $os, $data_length ) );
                     $os += $data_length;
+                    
+                    #if ($field_name_from_offset->{$param_offset} eq 'squeezecenter_name') {
+                    #    print "squeezecenter_name data string in MessageIn::udap_decode", HexDump($data_string);
+                    #};
 
-#if ($field_name_from_offset->{$param_offset} eq 'squeezecenter_name') {
-#    print "squeezecenter_name data string in MessageIn::udap_decode", hex2str($data_string);
-#};
-
-                    log( debug => '*** field name: ' . $field_name_from_offset->{$param_offset} . ', data string: ' . format_hex($data_string) . "\n" ) if $data_string;
-
+                    log( debug => "    data string: " . HexDump($data_string) . "\n" );
+                    
+                    #warn '$param_offset: ' . $param_offset;
+                    #warn '$data_string: ' . HexDump($data_string); 
+                    
+                    
+                    last SWITCH if !$param_offset;
+                    
                     $param_data_ref
                         ->{ $field_name_from_offset->{$param_offset} }
                         = $field_unpack_from_offset->{$param_offset}
-                        ->($data_string) if $param_offset;
+                        ->($data_string);
                 }
                 $self->update_device_data($param_data_ref);
                 last SWITCH;
@@ -292,19 +299,20 @@ __PACKAGE__->mk_accessors( keys %field_default );
 
             ( $self->ucp_method eq UCP_METHOD_SET_IP ) && do {
                 log( warn =>
-                        '    Need to check contents of set_ip response msg' );
+                        '    Need to check contents of ip response msg' );
                 last SWITCH;
             };
 
             # default action if ucp_method is not recognised goes here
             if ( exists $ucp_method_name->{ $self->ucp_method } ) {
-                log( debug => 'ucp_method ' . $ucp_method_name->{ $self->ucp_method }
+                carp(     'ucp_method '
+                        . $ucp_method_name->{ $self->ucp_method }
                         . ' callback not implemented yet' );
-                print "Raw msg:\n" . format_hex($raw_msg);
+                print "Raw msg:\n" . HexDump($raw_msg);
             }
             else {
-                croak( 'Unknown ucp_method value found: '
-                        . format_hex( $self->ucp_method ) );
+                carp( 'Unknown ucp_method value found: '
+                        . hexstr( $self->ucp_method, 4 ) );
             }
         }
         return $self;

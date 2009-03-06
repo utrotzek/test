@@ -20,6 +20,10 @@ package Net::UDAP::Util;
 use strict;
 use warnings;
 
+# Add the modules to the libpath
+use FindBin;
+use lib "$FindBin::Bin/../src/Net-UDAP/lib";
+
 use version; our $VERSION = qv('1.0_01');
 
 use vars qw(@ISA @EXPORT @EXPORT_OK %EXPORT_TAGS $VERSION);
@@ -29,7 +33,7 @@ use Exporter qw(import);
 
 %EXPORT_TAGS = (
     all => [
-        qw( decode_hex format_hex encode_mac decode_mac create_socket set_blocking )
+        qw( hexstr decode_hex encode_mac decode_mac create_socket detect_local_ip blocking local_addresses)
     ]
 );
 Exporter::export_tags('all');
@@ -40,6 +44,7 @@ use IO::Socket::INET;
 use Socket;
 
 {
+
     sub decode_hex {
 
         # Decode a hex string of specified length into a human-readable string
@@ -48,7 +53,6 @@ use Socket;
         # $fmt		- the format to use to unpack each byte
         # $separator	- the string to use as separator in the output string
         my ( $rawstr, $strlen, $fmt, $separator ) = @_;
-        return if !$rawstr;
         $separator = '' if !defined $separator;
         if ( length($rawstr) == $strlen ) {
             my @parts = unpack( "($fmt)*", $rawstr );
@@ -60,43 +64,32 @@ use Socket;
             }
         }
         else {
-            carp 'Supplied string has length '
+            carp 'Supplied string has length'
                 . length($rawstr)
-                . " (expected length: $strlen)";
-            return;
+                . "(expected length: $strlen)";
+            return undef;
         }
-    }
-
-    sub format_hex {
-        my $data = shift;
-        my $hex;
-        foreach ( split( //, $data ) ) {
-            $hex .= sprintf( '%02X ', ord($_) );
-        }
-        return $hex;
     }
 
     sub encode_mac {
 
         # Encode a mac address to a 6-byte string
         # $mac		- MAC address in format xx:xx:xx:xx:xx:xx
-        #             or xxxxxxxxxxxx
         my $mac = shift;
-
-        # $mac should now hold exactly 12 hex digits
-        if ($mac =~ m{
-                   ( [0-9A-Fa-f]{2} )  # match and capture two hex digits
-                   :                   # semi-colon literal
-                   ( [0-9A-Fa-f]{2} )  # match and capture two hex digits
-                   :                   # semi-colon literal
-                   ( [0-9A-Fa-f]{2} )  # match and capture two hex digits
-                   :                   # semi-colon literal
-                   ( [0-9A-Fa-f]{2} )  # match and capture two hex digits
-                   :                   # semi-colon literal
-                   ( [0-9A-Fa-f]{2} )  # match and capture two hex digits
-                   :                   # semi-colon literal
-                   ( [0-9A-Fa-f]{2} )  # match and capture two hex digits
-			}xms
+        if ($mac =~ /
+		    \A			# start of string
+		    ( [0-9A-Fa-f]{2} )	# match and capture two hex digits
+		    :			# semi-colon literal
+		    ( [0-9A-Fa-f]{2} )	# match and capture two hex digits
+		    :			# semi-colon literal
+		    ( [0-9A-Fa-f]{2} )	# match and capture two hex digits
+		    :			# semi-colon literal
+		    ( [0-9A-Fa-f]{2} )	# match and capture two hex digits
+		    :			# semi-colon literal
+		    ( [0-9A-Fa-f]{2} )	# match and capture two hex digits
+		    :			# semi-colon literal
+		    ( [0-9A-Fa-f]{2} )	# match and capture two hex digits
+		    /xms
             )
         {
             return pack( 'C6',
@@ -105,7 +98,7 @@ use Socket;
         else {
             carp
                 "MAC address \"$mac\" not in expected format (xx:xx:xx:xx:xx:xx)";
-            return;
+            return undef;
         }
     }
 
@@ -117,35 +110,127 @@ use Socket;
         return decode_hex( $rawstr, 6, 'H2', ':' );
     }
 
+    sub hexstr {
+
+        # decode the supplied bytes as a hex number string
+        # $bytes	- the byte string to decode
+        # $width	- the width of the output
+        # sample output (width=4): 0x0001
+        my ( $bytes, $width ) = @_;
+        return sprintf(
+            join( q{}, '0x%0', int($width), 'x' ),
+            unpack( 'n', $bytes )
+        );
+    }
+
     sub create_socket {
-        my $local_ip = shift || croak "must supply local_ip";
 
         # Setup listening socket on UDAP port
         my $sock = IO::Socket::INET->new(
             Proto     => 'udp',
-            LocalAddr => $local_ip,
             LocalPort => PORT_UDAP,
-            Broadcast => 1,
-            ReuseAddr => 1,
 
             # Setting Blocking like this doesn't work on Windows. bah.
-            #Blocking  => 0,
-        ) or croak "Error creating socket: $!";
+            #            Blocking  => 0,
+            Broadcast => 1,
+        );
+        if ( !defined $sock ) {
+            croak "error creating socket: $@";
+        }
 
         # Now set socket non-blocking in a way that works on Windows
-        set_blocking( $sock, 0 )
-            or croak "error setting socket non-blocking: $!";
-
+        if ( !blocking( $sock, 0 ) ) {
+            croak "error setting socket non-blocking";
+        }
         return $sock;
     }
 
-=head2 set_blocking( $sock, [0 | 1] )
+    sub local_addresses {
+
+        # This is a dirty hack to get IP addresses in use on the system
+        my $syscmd;
+        my $regex;
+
+        # Use ipconfig on Windows + under cygwin
+        if ( $^O =~ /Win|cygwin/ ) {
+            $syscmd = 'ipconfig';
+            $regex  = qr{IP Address.* ((?:\d{1,3}\.){3}\d{1,3})};
+        }
+        elsif ( $^O =~ /solaris/ ) {
+            $syscmd = '/usr/sbin/ifconfig -a4';
+            $regex  = qr{^\s+inet ((?:\d{1,3}\.){3}\d{1,3})};
+        }
+        else {
+            $syscmd = '/sbin/ifconfig';
+            $regex  = qr{inet addr:((?:\d{1,3}\.){3}\d{1,3})};
+        }
+        my @output = qx/$syscmd/;
+
+        my %ips;
+        for my $line (@output) {
+            if ( $line =~ /$regex/ ) {
+                my $ip = $1;
+
+                # ignore loopback and zero addresses
+                $ips{$ip} = inet_aton($ip) unless grep {/$ip/} qw{'127.0.0.1' '0.0.0.0'};
+            }
+        }
+        return \%ips;
+    }
+
+    sub detect_local_ip {
+
+        # This routine adapted from code used in SqueezeCenter
+        #
+        # Thanks to trick from Bill Fenner, trying to use a UDP socket won't
+        # send any packets out over the network, but will cause the routing
+        # table to do a lookup, so we can find our address. Don't use a high
+        # level abstraction like IO::Socket, as it dies when connect() fails.
+        #
+        # time.nist.gov - though it doesn't really matter.
+        my $raddr = '192.43.244.18';
+        my $rport = 123;
+
+        my $proto     = ( getprotobyname('udp') )[2];
+        my $pname     = ( getprotobynumber($proto) )[0];
+        my $sock      = Symbol::gensym();
+        my $localhost = INADDR_LOOPBACK;
+
+        my $iaddr = inet_aton($raddr) or do {
+            log( warn =>
+                    "    Couldn't call inet_aton($raddr) - falling back to $localhost"
+            );
+            return $localhost;
+        };
+
+        my $paddr = sockaddr_in( $rport, $iaddr );
+
+        socket( $sock, PF_INET, SOCK_DGRAM, $proto ) || do {
+            log( warn =>
+                    "    Couldn't call socket(PF_INET, SOCK_DGRAM, \$proto) - falling back to $localhost"
+            );
+            return $localhost;
+        };
+
+        connect( $sock, $paddr ) || do {
+            log( warn =>
+                    "    Couldn't call connect() - falling back to $localhost"
+            );
+            return $localhost;
+        };
+
+        # Find my half of the connection
+        my ( $port, $address ) = sockaddr_in( ( getsockname($sock) )[0] );
+        return $address;
+    }
+
+=head2 blocking( $sock, [0 | 1] )
 
 Set the passed socket to be blocking (1) or non-blocking (0)
 
 =cut
 
-    sub set_blocking {
+    sub blocking {
 
         my ( $sock, $block_val ) = @_;
 

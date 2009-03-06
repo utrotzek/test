@@ -25,7 +25,7 @@ use version; our $VERSION = qv('0.1');
 
 use Data::Dumper;
 
-# Add the Net-UDAP modules to the libpath
+# Add the modules to the libpath
 use FindBin;
 use lib "$FindBin::Bin/../src/Net-UDAP/lib";
 
@@ -35,7 +35,6 @@ $| = 1;
 
 my $ips = local_addresses;
 print join ',', keys %$ips;
-
 print "\n";
 
 # vim:set softtabstop=4:

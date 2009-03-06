@@ -20,7 +20,7 @@
 use strict;
 use warnings;
 
-# Add the Net-UDAP modules to the libpath
+# Add the modules to the libpath
 use FindBin;
 use lib "$FindBin::Bin/../src/Net-UDAP/lib";
 
@@ -29,7 +29,6 @@ use version; our $VERSION = qv('1.0_01');
 use Carp;
 use Data::Dumper;
 use Net::UDAP::Shell;
-use Net::UDAP::Log;
 
 $| = 1;
 
