@@ -20,9 +20,14 @@ package Net::UDAP::MessageOut;
 use strict;
 use warnings;
 
-use version; our $VERSION = qv('1.0_01');
+# Add the modules to the libpath
+use FindBin;
+use lib "$FindBin::Bin/../src/Net-UDAP/lib";
 
-use vars qw( $AUTOLOAD );                    # Keep 'use strict' happy
+use version; our $VERSION = qv('1.1.0');
+
+use vars qw( $AUTOLOAD );    # Keep 'use strict' happy
+
 use base qw(Class::Accessor);
 
 use Carp;

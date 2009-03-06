@@ -20,16 +20,21 @@ package Net::UDAP::MessageIn;
 use strict;
 use warnings;
 
-use version; our $VERSION = qv('1.0_01');
+# Add the modules to the libpath
+use FindBin;
+use lib "$FindBin::Bin/../src/Net-UDAP/lib";
 
-use vars qw( $AUTOLOAD );                    # Keep 'use strict' happy
+use version; our $VERSION = qv('1.1.0');
+
+use vars qw( $AUTOLOAD );    # Keep 'use strict' happy
+
 use base qw(Class::Accessor);
 
 use Carp;
 use Data::Dumper;
 use Net::UDAP::Constant;
-use Net::UDAP::Util;
 use Net::UDAP::Log;
+use Net::UDAP::Util;
 
 my %field_default = (
     raw_msg         => undef,
@@ -92,7 +97,6 @@ __PACKAGE__->mk_accessors( keys %field_default );
         # Update the device_data hash with the new values
         # No need to write the device_data hash back since
         # we're working with a reference to it
-
         @$device_data_ref{ keys %{$arg_ref} } = values %{$arg_ref};
 
         return;
@@ -222,8 +226,13 @@ __PACKAGE__->mk_accessors( keys %field_default );
                         ? substr( $raw_msg, $os, $data_length )
                         : '';
                     $os += $data_length;
-                    
-                    log( debug => '*** ucp_code_name: ' . $ucp_code_name->{$ucp_code} . ', data string: ' . format_hex($data) . "\n" ) if $data;
+
+                    log(      debug => '*** ucp_code_name: '
+                            . $ucp_code_name->{$ucp_code}
+                            . ', data string: '
+                            . format_hex($data)
+                            . "\n" )
+                        if $data;
 
                     # add to the data hash
                     if ( exists $ucp_code_name->{$ucp_code} ) {
@@ -268,7 +277,7 @@ __PACKAGE__->mk_accessors( keys %field_default );
                         = unpack( 'n', substr( $raw_msg, $os, 2 ) );
                     $os += 2;
 
-                    log( debug => "     data length: $data_length\n" );
+                    log( debug => "    data length: $data_length\n" );
 
                     #get string
                     my $data_string = unpack( "a*",
@@ -279,12 +288,18 @@ __PACKAGE__->mk_accessors( keys %field_default );
 #    print "squeezecenter_name data string in MessageIn::udap_decode", hex2str($data_string);
 #};
 
-                    log( debug => '*** field name: ' . $field_name_from_offset->{$param_offset} . ', data string: ' . format_hex($data_string) . "\n" ) if $data_string;
+                    log(      debug => '*** field name: '
+                            . $field_name_from_offset->{$param_offset}
+                            . ', data string: '
+                            . format_hex($data_string)
+                            . "\n" )
+                        if $data_string;
 
                     $param_data_ref
                         ->{ $field_name_from_offset->{$param_offset} }
                         = $field_unpack_from_offset->{$param_offset}
-                        ->($data_string) if $param_offset;
+                        ->($data_string)
+                        if $param_offset;
                 }
                 $self->update_device_data($param_data_ref);
                 last SWITCH;
@@ -298,9 +313,11 @@ __PACKAGE__->mk_accessors( keys %field_default );
 
             # default action if ucp_method is not recognised goes here
             if ( exists $ucp_method_name->{ $self->ucp_method } ) {
-                log( debug => 'ucp_method ' . $ucp_method_name->{ $self->ucp_method }
-                        . ' callback not implemented yet' );
-                print "Raw msg:\n" . format_hex($raw_msg);
+                log(      debug => 'ucp_method '
+                        . $ucp_method_name->{ $self->ucp_method }
+                        . ' callback not implemented yet' . "\n"
+                        . 'Raw msg: '
+                        . format_hex($raw_msg) );
             }
             else {
                 croak( 'Unknown ucp_method value found: '

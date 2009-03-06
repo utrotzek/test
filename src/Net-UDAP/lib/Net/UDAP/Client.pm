@@ -20,14 +20,20 @@ package Net::UDAP::Client;
 use strict;
 use warnings;
 
-use version; our $VERSION = qv('1.0_01');
+# Add the modules to the libpath
+use FindBin;
+use lib "$FindBin::Bin/../src/Net-UDAP/lib";
+
+use version; our $VERSION = qv('1.1.0');
 
 use vars qw( $AUTOLOAD );    # Keep 'use strict' happy
+
 use base qw(Class::Accessor);
 
 use Carp;
 use Data::Dumper;
 use Net::UDAP::Constant;
+use Net::UDAP::Log;
 use Net::UDAP::Util;
 
 my %other_codes_default = (
@@ -42,6 +48,7 @@ my %fields_default
     = ( %$field_default_from_name, %$ucp_code_default, %other_codes_default );
 
 __PACKAGE__->mk_accessors( keys(%fields_default) );
+
 {
 
     sub new {
@@ -159,7 +166,6 @@ __PACKAGE__->mk_accessors( keys(%fields_default) );
 }
 
 1;    # Magic true value required at end of module
-
 __END__
 
 =head1 NAME
